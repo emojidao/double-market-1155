@@ -1,163 +1,295 @@
-import { expect } from "chai";
+import { assert, expect } from "chai";
 import { BigNumber } from "ethers";
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
+import hre from "hardhat";
 
-describe("Test Market 4907", function () {
 
+describe("Test 1155 Market", function () {
     const ETH_Address = "0x0000000000000000000000000000000000000000";
-    const address0 = '0x0000000000000000000000000000000000000000';
-    let owner, admin, beneficiary, alice, royaltyAdminOfNFT, royaltyBeneficiaryOfNFT, lender, renter;
+    const Zero = "0x0000000000000000000000000000000000000000";
+    const Uint64Max = "18446744073709551615";
+    let owner, admin, beneficiary, royaltyAdminOfNFT, royaltyBeneficiaryOfNFT, lender, renter;
+    let alice, bob, carl;
+    let contract1155;
+    let contract5006;
+    let expiry;
+    let duration_n = 1;
+    let pricePerDay;
+    let factory;
     let market;
-    let testERC4907;
-    let doNFT4907;
-    let maxEndTime;
-    let first4907Id = 1;
-    let second4907Id = 2;
-    let pricePerDay = ethers.utils.parseEther("1");
     let erc20;
+    let lendingId;
+    let rentingId;
 
+    async function checkRecord(rid, tokenId, amount, owner, user, expiry_) {
+        expiry_ = BigNumber.from(expiry_ + "")
+        let record = await contract5006.userRecordOf(rid);
+        expect(record[0]).equals(tokenId, "tokenId");
+        expect(record[1]).equals(owner, "owner");
+        expect(record[2]).equals(amount, "amount");
+        expect(record[3]).equals(user, "user");
+        // expect(record[4]).equals(expiry_, "expiry_");
+    }
+
+    async function checkLending(orderId, lender, nftAddress, nftId, amount, frozen, expiry_, minDuration, pricePerDay, paymentToken, renter, orderType) {
+        expiry_ = BigNumber.from(expiry_ + "")
+        let order = await market.lendingOf(orderId);
+        expect(order[0]).equals(nftId, "nftId");
+        expect(order[1]).equals(nftAddress, "nftAddress");
+        expect(order[2]).equals(amount, "amount");
+        expect(order[3]).equals(lender, "lender");
+        expect(order[4]).equals(frozen, "frozen");
+        expect(order[5]).equals(renter, "renter");
+        expect(order[6]).equals(expiry_, "expiry_");
+        expect(order[7]).equals(paymentToken, "paymentToken");
+        expect(order[8]).equals(pricePerDay, "pricePerDay");
+    }
+
+    async function checkRenting(rentingId_, orderId, recordId) {
+        let order = await market.rentingOf(rentingId);
+        expect(order[0]).equals(orderId, "lendingId");
+        expect(order[1]).equals(recordId, "recordId");
+        let record = await contract5006.userRecordOf(rentingId);
+        // console.log(record);
+    }
 
     beforeEach(async function () {
+        [owner, admin, beneficiary, royaltyAdminOfNFT, royaltyBeneficiaryOfNFT, lender, renter, alice, bob, carl] = await ethers.getSigners();
+        const Test1155 = await ethers.getContractFactory("Test1155");
+        contract1155 = await Test1155.deploy();
 
-        [owner, admin, beneficiary, alice, royaltyAdminOfNFT, royaltyBeneficiaryOfNFT, lender, renter] = await ethers.getSigners();
+        const blockNumBefore = await ethers.provider.getBlockNumber();
+        const blockBefore = await ethers.provider.getBlock(blockNumBefore);
+        const timestamp = blockBefore.timestamp;
+        expiry = timestamp + 864000;
+
+        pricePerDay = ethers.utils.parseEther("1");
 
         const TestERC20 = await ethers.getContractFactory("TestERC20");
         erc20 = await TestERC20.deploy("T", "T", 18);
+        erc20.mint(alice.address, ethers.utils.parseEther("10000"));
+        erc20.mint(renter.address, ethers.utils.parseEther("10000"));
 
-        const Market = await ethers.getContractFactory("MarketV2");
-        market = await Market.deploy();
-        await market.initialize(owner.address, admin.address, beneficiary.address);
+        const WrappedInERC5006 = await ethers.getContractFactory("WrappedInERC5006");
+        let wrapERC1155WithUserRole = await WrappedInERC5006.deploy();
 
-        const TestERC4907Upgradeable = await ethers.getContractFactory("TestERC4907Upgradeable");
-        testERC4907 = await TestERC4907Upgradeable.deploy();
+        const RentalConfig = await ethers.getContractFactory("RentalConfig");
+        const config = await upgrades.deployProxy(RentalConfig, [owner.address], { unsafeAllow: ["delegatecall"] });
+        await config.deployed();
+        await config.initConfig(contract1155.address, royaltyAdminOfNFT.address, royaltyBeneficiaryOfNFT.address, 2500, 86400, 86400 * 180);
 
-        const DoubleSVGV2 = await ethers.getContractFactory("DoubleSVGV2");
-        const double_svg_v2 = await DoubleSVGV2.deploy();
+        const ERC1155RentalMarket = await ethers.getContractFactory("ERC1155RentalMarket");
+        market = await ERC1155RentalMarket.deploy();
+        market.initialize(owner.address, admin.address, beneficiary.address, wrapERC1155WithUserRole.address, config.address);
 
-        const DoNFT4907Model = await ethers.getContractFactory('DoNFT4907Model', {
-            libraries: {
-                "DoubleSVGV2": double_svg_v2.address
-            }
-        });
-        doNFT4907 = await DoNFT4907Model.deploy();
-        await doNFT4907.deployed();
-        await doNFT4907.initialize("do4907", "do4907", market.address, owner.address, admin.address);
+        await deployWrapERC1155(contract1155.address);
 
-        await testERC4907.connect(lender).setApprovalForAll(doNFT4907.address, true);
-        await testERC4907.connect(lender).mint(lender.address, first4907Id);
-        await testERC4907.connect(lender).mint(lender.address, second4907Id);
-        maxEndTime = Math.floor(new Date().getTime() / 1000 + 86400 * 7);
+        await contract1155.mint(lender.address, 1, 200);
+        await contract1155.connect(lender).setApprovalForAll(market.address, true);
+
+        lendingId = ethers.utils.solidityKeccak256(["address", "uint256", "address"], [contract1155.address, 1, lender.address]);
+        rentingId = 1;
+    });
+
+    async function deployWrapERC1155(addr) {
+        let tx = await market.deployWrapERC1155(addr);
+        let receipt = await tx.wait();
+        let event = receipt.events[1]
+        assert.equal(event.eventSignature, 'DeployWrapERC1155(address,address)')
+        contract5006 = await ethers.getContractAt("WrappedInERC5006", event.args[1]);
+    }
+
+    it("mint and create public lend order with ETH", async function () {
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, ETH_Address, Zero);
+        checkLending(
+            lendingId,
+            lender.address,
+            contract1155.address,
+            1,
+            100,
+            0,
+            expiry,
+            0,
+            pricePerDay,
+            ETH_Address,
+            Zero,
+            0
+        );
 
     });
 
+    it("mint and create public lend order with ERC20", async function () {
 
-    describe("when Market2 is not pause", function () {
-        it("mint and create lend order with ETH", async function () {
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0);
-            expect(await market.isLendOrderValid(doNFT4907.address, 1)).equal(true);
-            let lendOrder = await market.getLendOrder(doNFT4907.address, 1)
-            expect(lendOrder.lender).equal(lender.address);
-            expect(lendOrder.maxEndTime).equal(maxEndTime);
-            expect(lendOrder.minDuration).equal(86400);
-            expect(lendOrder.orderType).equal(0);
-            expect(lendOrder.paymentToken).equal(ETH_Address);
-            expect(lendOrder.privateOrderRenter).equal(address0);
-            expect(lendOrder.pricePerDay).equal(pricePerDay);
-        });
+        market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await checkLending(
+            lendingId,
+            lender.address,
+            contract1155.address,
+            1,
+            100,
+            0,
+            expiry,
+            0,
+            pricePerDay,
+            erc20.address,
+            Zero,
+            0
+        );
 
-        it("mint and create lend order with ETH limit indate", async function () {
-            await market.setMaxIndate(86400 * 6)
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0);
-            expect(await market.isLendOrderValid(doNFT4907.address, 1)).equal(true);
-            let lendOrder = await market.getLendOrder(doNFT4907.address, 1)
-            expect(lendOrder.lender).equal(lender.address);
-            expect(lendOrder.maxEndTime).lt(maxEndTime);
-            expect(lendOrder.minDuration).equal(86400);
-            expect(lendOrder.orderType).equal(0);
-            expect(lendOrder.paymentToken).equal(ETH_Address);
-            expect(lendOrder.privateOrderRenter).equal(address0);
-            expect(lendOrder.pricePerDay).equal(pricePerDay);
+    });
 
-        });
+    it("alice cancelLending success", async function () {
 
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await market.connect(lender).cancelLending(lendingId);
+        await checkLending(
+            lendingId,
+            lender.address,
+            contract1155.address,
+            1,
+            100,
+            0,
+            0,
+            0,
+            pricePerDay,
+            erc20.address,
+            Zero,
+            0
+        );
+    });
 
+    it("renter cancelLending fail", async function () {
 
-        it("mint and create lend order with ETH fail", async function () {
-            await expect(market.connect(renter).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0)).to.be.revertedWith("only owner");
-        });
+        await market.createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await expect(market.connect(renter).cancelLending(lendingId)).to.be.revertedWith("not lender");
+    });
 
-        it("create lend order with ETH", async function () {
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0);
-            await market.connect(lender).createLendOrder(doNFT4907.address, maxEndTime, 0, 1, ETH_Address, pricePerDay, address0, 86400);
-            expect(await market.isLendOrderValid(doNFT4907.address, 1)).to.equal(true);
-        });
-        it("create lend order with ETH fail", async function () {
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0);
-            await expect(market.connect(renter).createLendOrder(doNFT4907.address, maxEndTime, 0, 1, ETH_Address, pricePerDay, address0, 86400)).to.be.revertedWith("only owner");
-        });
+    it("renter rent1155 with ETH success", async function () {
 
-        it("cancelLendOrder success", async function () {
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0);
-            await market.connect(lender).cancelLendOrder(doNFT4907.address, 1);
-            expect(await market.isLendOrderValid(doNFT4907.address, 1)).to.equal(false);
-        });
+        await market.createLending(contract1155.address, 1, 100, expiry, pricePerDay, ETH_Address, Zero);
+        await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, ETH_Address, pricePerDay, { value: ethers.utils.parseEther("10") });
+        await checkLending(
+            lendingId,
+            lender.address,
+            contract1155.address,
+            1,
+            100,
+            10,
+            expiry,
+            0,
+            pricePerDay,
+            ETH_Address,
+            Zero,
+            0
+        );
 
-        it("cancelLendOrder fail", async function () {
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0);
-            await expect(market.connect(renter).cancelLendOrder(doNFT4907.address, 1)).to.be.revertedWith("only owner");
-        });
+        await checkRenting(1, lendingId, 1);
 
-        it("fulfillOrderNow with ETH success", async function () {
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0);
-            await market.connect(renter).fulfillOrderNow(doNFT4907.address, 86400, 1, renter.address, ETH_Address, pricePerDay, { value: pricePerDay });
-            expect(await doNFT4907.ownerOf(2)).equal(renter.address, "ownerOf 2");
-            expect(await testERC4907.userOf(first4907Id)).equal(renter.address, "userOf");
+        await checkRecord(1, 1, 10, market.address, renter.address, expiry);
+    });
 
-            await market.connect(renter).createLendOrder(doNFT4907.address, maxEndTime, 0, 2, ETH_Address, pricePerDay, address0, 86400);
-            await market.connect(renter).fulfillOrderNow(doNFT4907.address, 86400*2, 2, renter.address, ETH_Address, pricePerDay, { value: ethers.utils.parseEther('2') });
+    it("renter rent1155 with ERC20 success", async function () {
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await erc20.mint(renter.address, ethers.utils.parseEther("10"));
+        await erc20.connect(renter).approve(market.address, ethers.utils.parseEther("10"));
+        await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, erc20.address, pricePerDay);
+        await checkLending(
+            lendingId,
+            lender.address,
+            contract1155.address,
+            1,
+            100,
+            10,
+            expiry,
+            0,
+            pricePerDay,
+            erc20.address,
+            Zero,
+            0
+        );
 
-        });
-        it("fulfillOrderNow with ETH fail", async function () {
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0);
-            await expect(market.connect(renter).fulfillOrderNow(doNFT4907.address, 86400, 1, renter.address, ETH_Address, pricePerDay, { value: ethers.utils.parseEther("0.9") })).to.be.revertedWith("payment is not enough");
-        });
+        await checkRenting(1, lendingId, 1);
 
-        it("fulfillOrderNow with erc20 success", async function () {
-            await market.connect(owner).setRoyaltyAdmin(testERC4907.address, renter.address);
-            await market.connect(renter).setRoyaltyBeneficiary(testERC4907.address, renter.address)
-            await market.connect(renter).setRoyaltyFee(testERC4907.address, 2500)
+        await checkRecord(1, 1, 10, market.address, renter.address, expiry);
+    });
 
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, erc20.address, 86400, 0, address0);
-            await erc20.connect(renter).approve(market.address, pricePerDay);
-            erc20.mint(renter.address, pricePerDay);
-            await market.connect(renter).fulfillOrderNow(doNFT4907.address, 86400, 1, renter.address, erc20.address, pricePerDay);
-            expect(await erc20.balanceOf(renter.address)).equal(0);
-            expect(await doNFT4907.ownerOf(2)).equal(renter.address, "ownerOf 2");
-            expect(await testERC4907.userOf(first4907Id)).equal(renter.address, "userOf");
-            expect(await market.balanceOfRoyalty(testERC4907.address, erc20.address)).equal(BigNumber.from("25000000000000000"), "balanceOfRoyalty");
-            await market.connect(renter).claimRoyalty(testERC4907.address, [erc20.address])
-            expect(await market.balanceOfRoyalty(testERC4907.address, erc20.address)).equal(0, "after claim");
-        });
+    it("carl rent1155 with ERC20 fail if FT amount exceeds balance", async function () {
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await erc20.mint(carl.address, ethers.utils.parseEther("9"));
+        await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("10"));
+        await expect(market.connect(carl).rent1155(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay)).to.be.revertedWith("ERC20: transfer amount exceeds balance")
+    });
 
-        it("private fulfillOrderNow with ETH success", async function () {
-            await market.connect(owner).setRoyaltyAdmin(testERC4907.address, renter.address);
-            await market.connect(renter).setRoyaltyBeneficiary(testERC4907.address, renter.address)
-            await market.connect(renter).setRoyaltyFee(testERC4907.address, 2500)
+    it("renter carl rent1155 with ERC20 success", async function () {
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await erc20.mint(renter.address, ethers.utils.parseEther("10"));
+        await erc20.connect(renter).approve(market.address, ethers.utils.parseEther("10"));
+        await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, erc20.address, pricePerDay);
+        await erc20.mint(carl.address, ethers.utils.parseEther("10"));
+        await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("10"));
+        await market.connect(carl).rent1155(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
+        await checkLending(
+            lendingId,
+            lender.address,
+            contract1155.address,
+            1,
+            100,
+            20,
+            expiry,
+            0,
+            pricePerDay,
+            erc20.address,
+            Zero,
+            0
+        );
 
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 1, renter.address);
-            await market.connect(renter).fulfillOrderNow(doNFT4907.address, 86400, 1, renter.address, ETH_Address, pricePerDay, { value: pricePerDay });
-            expect(await doNFT4907.ownerOf(2)).equal(renter.address, "ownerOf 2");
-            expect(await testERC4907.userOf(first4907Id)).equal(renter.address, "userOf");
-            expect(await market.balanceOfRoyalty(testERC4907.address, ETH_Address)).equal(BigNumber.from("25000000000000000"), "balanceOfRoyalty");
-            await market.connect(renter).claimRoyalty(testERC4907.address, [ETH_Address])
-            expect(await market.balanceOfRoyalty(testERC4907.address, ETH_Address)).equal(0, "after claim");
-        });
-        it("private fulfillOrderNow with ETH fail", async function () {
-            await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 1, renter.address);
-            await expect(market.fulfillOrderNow(doNFT4907.address, 86400, 1, renter.address, ETH_Address, pricePerDay, { value: pricePerDay })).to.be.revertedWith("invalid renter");
-        });
+        await checkRenting(1, lendingId, 1);
 
-    })
+        await checkRecord(1, 1, 10, market.address, renter.address, expiry);
+
+        await checkRecord(2, 1, 10, market.address, carl.address, expiry);
+    });
+
+    it("carl rent1155 with ERC20 fail if insufficient remaining amount", async function () {
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await erc20.mint(renter.address, ethers.utils.parseEther("10"));
+        await erc20.connect(renter).approve(market.address, ethers.utils.parseEther("10"));
+        await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, erc20.address, pricePerDay);
+        await erc20.mint(carl.address, ethers.utils.parseEther("100"));
+        await expect(market.connect(carl).rent1155(lendingId, 91, duration_n, carl.address, erc20.address, pricePerDay)).to.be.revertedWith("insufficient remaining amount")
+    });
+
+    it("clear rent1155 success", async function () {
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await erc20.mint(carl.address, ethers.utils.parseEther("10"));
+        await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("10"));
+        await market.connect(carl).rent1155(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
+        await hre.network.provider.send("hardhat_mine", ["0x5a1", "0x3c"]);
+        await market.clearRenting1155(1);
+
+        await checkLending(
+            lendingId,
+            lender.address,
+            contract1155.address,
+            1,
+            100,
+            0,
+            expiry,
+            0,
+            pricePerDay,
+            erc20.address,
+            Zero,
+            0
+        );
+
+        await checkRenting(1, "0x0000000000000000000000000000000000000000000000000000000000000000", 0);
+
+        await checkRecord(1, 0, 0, Zero, Zero, 0);
+
+        expect(await contract5006.balanceOf(alice.address, 1)).equals(0);
+        expect(await contract1155.balanceOf(alice.address, 1)).equals(200);
+
+    });
 
     describe("market fee", function () {
         let receipt = null;
@@ -191,13 +323,16 @@ describe("Test Market 4907", function () {
 
         context('claim market fee', function () {
             it("should success if caller is beneficiary", async function () {
-                await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, erc20.address, 86400, 0, address0);
-                await erc20.connect(renter).approve(market.address, pricePerDay);
-                erc20.mint(renter.address, pricePerDay);
-                await market.connect(renter).fulfillOrderNow(doNFT4907.address, 86400, 1, renter.address, erc20.address, pricePerDay);
+                await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+                await erc20.mint(renter.address, ethers.utils.parseEther("10"));
+                await erc20.connect(renter).approve(market.address, ethers.utils.parseEther("10"));
+                await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, erc20.address, pricePerDay);
+                await erc20.mint(carl.address, ethers.utils.parseEther("10"));
+                await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("10"));
+                await market.connect(carl).rent1155(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
 
-                await market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, second4907Id, ETH_Address, 86400, 0, address0);
-                await market.connect(renter).fulfillOrderNow(doNFT4907.address, 86400, 3, renter.address, ETH_Address, pricePerDay, { value: pricePerDay });
+                await market.createLending(contract1155.address, 1, 100, expiry, pricePerDay, ETH_Address, Zero);
+                await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, ETH_Address, pricePerDay, { value: ethers.utils.parseEther("10") });
 
                 receipt = await market.connect(beneficiary).claimMarketFee([ETH_Address, erc20.address]);
                 expect(await market.marketBalanceOfFee(ETH_Address)).equal(0);
@@ -295,7 +430,7 @@ describe("Test Market 4907", function () {
 
     })
 
-    describe("when Market2 is pause", function () {
+    describe("when Market is pause", function () {
         beforeEach(async function () {
             await market.setPause(true)
         });
@@ -1366,4 +1501,4 @@ describe("Test Market 4907", function () {
     })
 
 
-})
+});
