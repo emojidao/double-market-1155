@@ -24,15 +24,15 @@ describe("Test 1155 User Role", function () {
         test1155 = await Test1155.deploy();
 
         const WrappedInERC5006 = await ethers.getContractFactory("WrappedInERC5006");
-
         contract = await WrappedInERC5006.deploy();
-
         contract.initializeWrap(test1155.address);
-
-        expiry = Math.floor(new Date().getTime() / 1000) + 3600;
 
         await test1155.setApprovalForAll(contract.address, true);
 
+        const blockNumBefore = await ethers.provider.getBlockNumber();
+        const blockBefore = await ethers.provider.getBlock(blockNumBefore);
+        const timestamp = blockBefore.timestamp;
+        expiry = timestamp + 864000;
 
     });
 
@@ -74,7 +74,7 @@ describe("Test 1155 User Role", function () {
         it("Should set user to bob fail : balance is not enough", async function () {
             await test1155.mint(alice.address, 1, 100);
             await contract.stake(1, 100, alice.address);
-            await expect(contract.createUserRecord(alice.address, bob.address, 1, 101, expiry)).to.be.revertedWith('balance is not enough');
+            await expect(contract.createUserRecord(alice.address, bob.address, 1, 101, expiry)).to.be.revertedWith('ERC1155: insufficient balance for transfer');
 
         });
 

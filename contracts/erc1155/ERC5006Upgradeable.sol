@@ -82,7 +82,6 @@ contract ERC5006Upgradeable is
         require(isOwnerOrApproved(owner));
         require(amount > 0, "invalid amount");
         require(expiry > block.timestamp, "invalid expiry");
-        require(amount <= balanceOf(owner, tokenId), "balance is not enough");
         require(
             _userRecordIds[tokenId][user].length() < recordLimit,
             "user cannot have more records"

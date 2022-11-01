@@ -75,6 +75,17 @@ contract BaseMarketUpgradeable is
         }
     }
 
+    function balanceOfFee(address[] calldata paymentTokens)
+        external
+        view
+        returns (uint256[] memory balances)
+    {
+        balances = new uint256[](paymentTokens.length);
+        for (uint256 index = 0; index < paymentTokens.length; index++) {
+            balances[index] = _balanceOfFee[paymentTokens[index]];
+        }
+    }
+
     function totalFee(address oNFT) external view returns (uint16) {
         return fee + rentalConfig.getConfig(oNFT).fee;
     }

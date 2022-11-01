@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 
-describe("ERC5006", function () {
+describe("ERC5006Upgradeable", function () {
     let alice, bob, carl;
     let contract;
     let expiry;
@@ -17,8 +17,9 @@ describe("ERC5006", function () {
 
     beforeEach(async function () {
         [alice, bob, carl] = await ethers.getSigners();
-        const ERC5006Demo = await ethers.getContractFactory("ERC5006Demo");
-        contract = await ERC5006Demo.deploy("", 3);
+        const ERC5006UpgradeableDemo = await ethers.getContractFactory("ERC5006UpgradeableDemo");
+        contract = await ERC5006UpgradeableDemo.deploy();
+        contract.initialize("",3);
         const blockNumBefore = await ethers.provider.getBlockNumber();
         const blockBefore = await ethers.provider.getBlock(blockNumBefore);
         const timestamp = blockBefore.timestamp;

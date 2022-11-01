@@ -101,6 +101,7 @@ contract ERC1155RentalMarket is
         returns (IERC5006.UserRecord memory)
     {
         Renting storage renting = rentingMap[rentingId];
+        require(renting.recordId != 0, "Nonexistent Record");
         Lending storage lending = lendingMap[renting.lendingId];
 
         bool is5006 = IERC165(lending.nftAddress).supportsInterface(

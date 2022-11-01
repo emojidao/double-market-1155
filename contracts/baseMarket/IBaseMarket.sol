@@ -9,6 +9,11 @@ interface IBaseMarket {
 
     function setBeneficiary(address beneficiary) external;
 
+    function balanceOfFee(address[] calldata paymentTokens)
+        external
+        view
+        returns (uint256[] memory);
+
     function claimFee(address[] calldata paymentTokens) external;
 
     function totalFee(address oNFT) external view returns (uint16);

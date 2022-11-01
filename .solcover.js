@@ -4,7 +4,7 @@ module.exports = {
     compileCommand: 'npm run compile',
     skipFiles: [
         'test',
-        'v2/ReverseRegistrarUtil.sol',
+        'ReverseRegistrarUtil.sol',
     ],
     providerOptions: {
         default_balance_ether: '10000000000000000000000000',

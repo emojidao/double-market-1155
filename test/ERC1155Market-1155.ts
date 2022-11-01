@@ -4,31 +4,33 @@ import { ethers, upgrades } from "hardhat";
 import hre from "hardhat";
 
 
-describe("Test 1155 Market", function () {
+describe("ERC1155Market-1155", function () {
     const ETH_Address = "0x0000000000000000000000000000000000000000";
     const Zero = "0x0000000000000000000000000000000000000000";
-    const Uint64Max = "18446744073709551615";
-    let owner, admin, beneficiary, royaltyAdminOfNFT, royaltyBeneficiaryOfNFT, lender, renter;
+    let owner, admin, beneficiary, adminOfNFT, beneficiaryOfNFT, lender, renter;
     let alice, bob, carl;
     let contract1155;
-    let contract5006;
+    let wrap5006;
     let expiry;
     let duration_n = 1;
     let pricePerDay;
-    let factory;
     let market;
+    let config;
     let erc20;
     let lendingId;
     let rentingId;
 
     async function checkRecord(rid, tokenId, amount, owner, user, expiry_) {
         expiry_ = BigNumber.from(expiry_ + "")
-        let record = await contract5006.userRecordOf(rid);
-        expect(record[0]).equals(tokenId, "tokenId");
-        expect(record[1]).equals(owner, "owner");
-        expect(record[2]).equals(amount, "amount");
-        expect(record[3]).equals(user, "user");
-        // expect(record[4]).equals(expiry_, "expiry_");
+        if (tokenId == 0) {
+            await expect(market.recordOf(rid)).to.be.revertedWith("Nonexistent Record");
+        } else {
+            let record = await market.recordOf(rid);
+            expect(record[0]).equals(tokenId, "tokenId");
+            expect(record[1]).equals(owner, "owner");
+            expect(record[2]).equals(amount, "amount");
+            expect(record[3]).equals(user, "user");
+        }
     }
 
     async function checkLending(orderId, lender, nftAddress, nftId, amount, frozen, expiry_, minDuration, pricePerDay, paymentToken, renter, orderType) {
@@ -49,12 +51,12 @@ describe("Test 1155 Market", function () {
         let order = await market.rentingOf(rentingId);
         expect(order[0]).equals(orderId, "lendingId");
         expect(order[1]).equals(recordId, "recordId");
-        let record = await contract5006.userRecordOf(rentingId);
+        let record = await wrap5006.userRecordOf(rentingId);
         // console.log(record);
     }
 
     beforeEach(async function () {
-        [owner, admin, beneficiary, royaltyAdminOfNFT, royaltyBeneficiaryOfNFT, lender, renter, alice, bob, carl] = await ethers.getSigners();
+        [owner, admin, beneficiary, adminOfNFT, beneficiaryOfNFT, lender, renter, alice, bob, carl] = await ethers.getSigners();
         const Test1155 = await ethers.getContractFactory("Test1155");
         contract1155 = await Test1155.deploy();
 
@@ -74,9 +76,9 @@ describe("Test 1155 Market", function () {
         let wrapERC1155WithUserRole = await WrappedInERC5006.deploy();
 
         const RentalConfig = await ethers.getContractFactory("RentalConfig");
-        const config = await upgrades.deployProxy(RentalConfig, [owner.address], { unsafeAllow: ["delegatecall"] });
+        config = await upgrades.deployProxy(RentalConfig, [owner.address], { unsafeAllow: ["delegatecall"] });
         await config.deployed();
-        await config.initConfig(contract1155.address, royaltyAdminOfNFT.address, royaltyBeneficiaryOfNFT.address, 2500, 86400, 86400 * 180);
+        await config.initConfig(contract1155.address, adminOfNFT.address, beneficiaryOfNFT.address, 2500, 86400, 86400 * 180);
 
         const ERC1155RentalMarket = await ethers.getContractFactory("ERC1155RentalMarket");
         market = await ERC1155RentalMarket.deploy();
@@ -96,7 +98,9 @@ describe("Test 1155 Market", function () {
         let receipt = await tx.wait();
         let event = receipt.events[1]
         assert.equal(event.eventSignature, 'DeployWrapERC1155(address,address)')
-        contract5006 = await ethers.getContractAt("WrappedInERC5006", event.args[1]);
+        wrap5006 = await ethers.getContractAt("WrappedInERC5006", event.args[1]);
+
+        expect(await market.wNFTOf(contract1155.address)).equal(wrap5006.address)
     }
 
     it("mint and create public lend order with ETH", async function () {
@@ -120,7 +124,7 @@ describe("Test 1155 Market", function () {
 
     it("mint and create public lend order with ERC20", async function () {
 
-        market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
         await checkLending(
             lendingId,
             lender.address,
@@ -138,7 +142,7 @@ describe("Test 1155 Market", function () {
 
     });
 
-    it("alice cancelLending success", async function () {
+    it("lender cancelLending success", async function () {
 
         await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
         await market.connect(lender).cancelLending(lendingId);
@@ -166,8 +170,8 @@ describe("Test 1155 Market", function () {
 
     it("renter rent1155 with ETH success", async function () {
 
-        await market.createLending(contract1155.address, 1, 100, expiry, pricePerDay, ETH_Address, Zero);
-        await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, ETH_Address, pricePerDay, { value: ethers.utils.parseEther("10") });
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, ETH_Address, Zero);
+        await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, ETH_Address, pricePerDay, { value: ethers.utils.parseEther("11") });
         await checkLending(
             lendingId,
             lender.address,
@@ -259,8 +263,18 @@ describe("Test 1155 Market", function () {
         await expect(market.connect(carl).rent1155(lendingId, 91, duration_n, carl.address, erc20.address, pricePerDay)).to.be.revertedWith("insufficient remaining amount")
     });
 
+    it("carl rent1155 with ERC20 fail if lending is private", async function () {
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, bob.address);
+        await erc20.mint(carl.address, ethers.utils.parseEther("100"));
+        await expect(market.connect(carl).rent1155(lendingId, 91, duration_n, carl.address, erc20.address, pricePerDay)).to.be.revertedWith("invalid renter")
+    });
+
     it("clear rent1155 success", async function () {
-        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        const blockNumBefore = await ethers.provider.getBlockNumber();
+        const blockBefore = await ethers.provider.getBlock(blockNumBefore);
+        const timestamp = blockBefore.timestamp;
+        let _expiry = timestamp + 86400 * 2;
+        await market.connect(lender).createLending(contract1155.address, 1, 100, _expiry, pricePerDay, erc20.address, Zero);
         await erc20.mint(carl.address, ethers.utils.parseEther("10"));
         await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("10"));
         await market.connect(carl).rent1155(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
@@ -274,7 +288,7 @@ describe("Test 1155 Market", function () {
             1,
             100,
             0,
-            expiry,
+            _expiry,
             0,
             pricePerDay,
             erc20.address,
@@ -286,8 +300,8 @@ describe("Test 1155 Market", function () {
 
         await checkRecord(1, 0, 0, Zero, Zero, 0);
 
-        expect(await contract5006.balanceOf(alice.address, 1)).equals(0);
-        expect(await contract1155.balanceOf(alice.address, 1)).equals(200);
+        expect(await wrap5006.balanceOf(lender.address, 1)).equals(0);
+        expect(await contract1155.balanceOf(lender.address, 1)).equals(200);
 
     });
 
@@ -295,12 +309,12 @@ describe("Test 1155 Market", function () {
         let receipt = null;
         context('set market beneficiary', function () {
             it("should success if caller is owner", async function () {
-                receipt = await market.connect(owner).setMarketBeneficiary(alice.address);
-                expect(await market.marketBeneficiary()).equal(alice.address);
+                receipt = await market.connect(owner).setBeneficiary(alice.address);
+                expect(await market.beneficiary()).equal(alice.address);
             });
 
             it("should fail if caller is not owner", async function () {
-                await expect(market.connect(alice).setMarketBeneficiary(alice.address)).to.be.revertedWith("onlyOwner");
+                await expect(market.connect(alice).setBeneficiary(alice.address)).to.be.revertedWith("onlyOwner");
             });
         })
 
@@ -308,16 +322,24 @@ describe("Test 1155 Market", function () {
             let fee = 10000;
             let invalidFee = 10001;
             it("should success if caller is owner and fee <=10000", async function () {
-                receipt = await market.connect(owner).setMarketFee(fee);
-                expect(await market.getMarketFee()).equal(fee);
+                receipt = await market.connect(owner).setFee(fee);
+                expect(await market.fee()).equal(fee);
             });
             it("should success if caller is admin and fee <=10000", async function () {
-                receipt = await market.connect(admin).setMarketFee(fee);
-                expect(await market.getMarketFee()).equal(fee);
+                receipt = await market.connect(admin).setFee(fee);
+                expect(await market.fee()).equal(fee);
             });
 
             it("should fail if market fee > 10000", async function () {
-                await expect(market.connect(owner).setMarketFee(invalidFee)).to.be.revertedWith("invalid fee");
+                await expect(market.connect(owner).setFee(invalidFee)).to.be.revertedWith("invalid fee");
+            });
+        })
+
+        context('total fee', function () {
+            it("totalFee = marketFee + royaltyFee", async function () {
+                const marketFee = await market.fee();
+                const _config = await config.getConfig(contract1155.address);
+                expect(await market.totalFee(contract1155.address)).equal(marketFee + _config.fee);
             });
         })
 
@@ -331,16 +353,18 @@ describe("Test 1155 Market", function () {
                 await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("10"));
                 await market.connect(carl).rent1155(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
 
-                await market.createLending(contract1155.address, 1, 100, expiry, pricePerDay, ETH_Address, Zero);
+                await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, ETH_Address, Zero);
                 await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, ETH_Address, pricePerDay, { value: ethers.utils.parseEther("10") });
 
-                receipt = await market.connect(beneficiary).claimMarketFee([ETH_Address, erc20.address]);
-                expect(await market.marketBalanceOfFee(ETH_Address)).equal(0);
-                expect(await market.marketBalanceOfFee(erc20.address)).equal(0);
+                receipt = await market.connect(beneficiary).claimFee([ETH_Address, erc20.address]);
+
+                let _balance = await market.balanceOfFee([ETH_Address, erc20.address])
+                expect(_balance[0]).equal(0);
+                expect(_balance[1]).equal(0);
             });
 
             it("should fail if caller is not beneficiary", async function () {
-                await expect(market.connect(alice).claimMarketFee([ETH_Address, erc20.address])).to.be.revertedWith("not beneficiary");
+                await expect(market.connect(alice).claimFee([ETH_Address, erc20.address])).to.be.revertedWith("not beneficiary");
             });
         })
 
@@ -348,57 +372,48 @@ describe("Test 1155 Market", function () {
 
     describe("royalty", function () {
         let receipt = null;
-        context('set royalty admin', function () {
-            it("should success if caller is owner", async function () {
-                receipt = await market.connect(owner).setRoyaltyAdmin(testERC4907.address, royaltyAdminOfNFT.address);
-                await expect(receipt).to.emit(market, "RoyaltyAdminChanged").withArgs(owner.address, testERC4907.address, royaltyAdminOfNFT.address);
-                expect(await market.getRoyaltyAdmin(testERC4907.address)).equal(royaltyAdminOfNFT.address);
-            });
+        beforeEach(async function () {
+            await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+            await erc20.mint(renter.address, ethers.utils.parseEther("10"));
+            await erc20.connect(renter).approve(market.address, ethers.utils.parseEther("10"));
+            await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, erc20.address, pricePerDay);
 
-            it("should success if caller is admin", async function () {
-                receipt = await market.connect(admin).setRoyaltyAdmin(testERC4907.address, royaltyAdminOfNFT.address);
-                await expect(receipt).to.emit(market, "RoyaltyAdminChanged").withArgs(admin.address, testERC4907.address, royaltyAdminOfNFT.address);
-                expect(await market.getRoyaltyAdmin(testERC4907.address)).equal(royaltyAdminOfNFT.address);
-            });
+            await erc20.mint(carl.address, ethers.utils.parseEther("10"));
+            await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("10"));
+            await market.connect(carl).rent1155(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
 
-            it("should fail if caller is not owner nor admin ", async function () {
-                await expect(market.connect(alice).setRoyaltyAdmin(testERC4907.address, royaltyAdminOfNFT.address)).to.be.revertedWith("onlyAdmin");
+            await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, ETH_Address, Zero);
+            await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, ETH_Address, pricePerDay, { value: ethers.utils.parseEther("10") });
+        });
+        context('balanceOfRoyalty', function () {
+            it("The balance of royalty should be 2.5% of the total transaction amount", async function () {
+                let balances = await market.balanceOfRoyalty(contract1155.address, [ETH_Address, erc20.address])
+                expect(balances[0]).equal(ethers.utils.parseEther('0.25'))
+                expect(balances[1]).equal(ethers.utils.parseEther('0.50'))
             });
         })
 
-        context('set royalty beneficiary', function () {
-            it("should success if caller is royalty admin", async function () {
-                await market.connect(owner).setRoyaltyAdmin(testERC4907.address, royaltyAdminOfNFT.address);
-                receipt = await market.connect(royaltyAdminOfNFT).setRoyaltyBeneficiary(testERC4907.address, royaltyBeneficiaryOfNFT.address);
-                await expect(receipt).to.emit(market, "RoyaltyBeneficiaryChanged").withArgs(royaltyAdminOfNFT.address, testERC4907.address, royaltyBeneficiaryOfNFT.address);
-                expect(await market.getRoyaltyBeneficiary(testERC4907.address)).equal(royaltyBeneficiaryOfNFT.address);
+        context('claim royalty', function () {
+            it("should success if caller is beneficiary Of NFT", async function () {
+                const balances_before = await market.balanceOfRoyalty(contract1155.address, [ETH_Address, erc20.address])
+                const balance_eth_beneficiary_of_NFT_before = await ethers.provider.getBalance(beneficiaryOfNFT.address)
+                const balance_erc20_beneficiary_of_NFT_before = await erc20.balanceOf(beneficiaryOfNFT.address)
+                const tx = await market.connect(beneficiaryOfNFT).claimRoyalty(contract1155.address, [ETH_Address, erc20.address]);
+                const receipt = await tx.wait()
+                const gasUsed = receipt.cumulativeGasUsed.mul(receipt.effectiveGasPrice);
+                const balances_after = await market.balanceOfRoyalty(contract1155.address, [ETH_Address, erc20.address])
+                expect(balances_after[0]).equal(0)
+                expect(balances_after[1]).equal(0)
+                const balance_eth_beneficiary_of_NFT_after = await ethers.provider.getBalance(beneficiaryOfNFT.address)
+                const balance_erc20_beneficiary_of_NFT_after = await erc20.balanceOf(beneficiaryOfNFT.address)
+                expect(balance_eth_beneficiary_of_NFT_before.sub(gasUsed).add(balances_before[0])).equal(balance_eth_beneficiary_of_NFT_after)
+                expect(balance_erc20_beneficiary_of_NFT_before.add(balances_before[1])).equal(balance_erc20_beneficiary_of_NFT_after)
             });
-            it("should fail if caller is not royalty admin ", async function () {
-                await expect(market.connect(alice).setRoyaltyBeneficiary(testERC4907.address, royaltyBeneficiaryOfNFT.address)).to.be.revertedWith("msg.sender is not royaltyAdmin");
-            });
-        })
-
-        context('set royalty fee', function () {
-            let royaltyFee = 10000;
-            let invalidFee = 10001;
-            it("should success if caller is royalty admin and fee <=10000", async function () {
-                await market.connect(owner).setRoyaltyAdmin(testERC4907.address, lender.address);
-                receipt = await market.connect(lender).setRoyaltyFee(testERC4907.address, royaltyFee);
-                await expect(receipt).to.emit(market, "RoyaltyFeeChanged").withArgs(lender.address, testERC4907.address, royaltyFee);
-                expect(await market.getRoyaltyFee(testERC4907.address)).equal(royaltyFee);
-            });
-            it("should fail if caller is not royalty admin ", async function () {
-                await expect(market.connect(alice).setRoyaltyFee(testERC4907.address, royaltyFee)).to.be.revertedWith("msg.sender is not royaltyAdmin");
-            });
-
-            it("should fail if royalty fee > 10000", async function () {
-                await market.connect(owner).setRoyaltyAdmin(testERC4907.address, lender.address);
-                await expect(market.connect(lender).setRoyaltyFee(testERC4907.address, invalidFee)).to.be.revertedWith("fee exceeds 10pct");
+            it("should fail if caller is not beneficiary Of NFT", async function () {
+                await expect(market.connect(alice).claimRoyalty(contract1155.address, [ETH_Address, erc20.address])).to.be.revertedWith("not beneficiary");
             });
         })
-
     })
-
 
     describe("pause & unpause", function () {
         let receipt = null;
@@ -432,18 +447,18 @@ describe("Test 1155 Market", function () {
 
     describe("when Market is pause", function () {
         beforeEach(async function () {
-            await market.setPause(true)
+            await market.connect(owner).setPause(true)
         });
         it("should fail", async function () {
-            await expect(market.connect(lender).mintAndCreateLendOrder(testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0)).to.be.revertedWith("is pausing");
-            await expect(market.connect(lender).createLendOrder(doNFT4907.address, maxEndTime, 0, 1, ETH_Address, pricePerDay, address0, 86400)).to.be.revertedWith("is pausing");
-            await expect(market.connect(lender).cancelLendOrder(doNFT4907.address, 1)).to.be.revertedWith("is pausing");
-            await expect(market.connect(renter).fulfillOrderNow(doNFT4907.address, 86400, 1, renter.address, ETH_Address, pricePerDay, { value: pricePerDay })).to.be.revertedWith("is pausing");
-            await expect(market.connect(lender).claimMarketFee([testERC4907.address])).to.be.revertedWith("is pausing");
-            await expect(market.connect(lender).claimRoyalty(testERC4907.address, [ETH_Address])).to.be.revertedWith("is pausing");
-            expect(await market.isLendOrderValid(doNFT4907.address, 1)).to.equal(false);
+            await expect(market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero)).to.be.revertedWith("is pausing");
+            await expect(market.connect(lender).cancelLending(lendingId)).to.be.revertedWith("is pausing");
+            await expect(market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, ETH_Address, pricePerDay, { value: ethers.utils.parseEther("10") })).to.be.revertedWith("is pausing");
+            await expect(market.connect(beneficiary).claimFee([ETH_Address, erc20.address])).to.be.revertedWith("is pausing");
+            await expect(market.connect(alice).claimRoyalty(contract1155.address, [ETH_Address, erc20.address])).to.be.revertedWith("is pausing");
         });
-
+        it("should succee", async function () {
+            await market.connect(owner).setPause(false)
+        });
     })
 
     describe("ownable", function () {
@@ -489,1016 +504,19 @@ describe("Test 1155 Market", function () {
         })
     })
 
-    describe("multicall", function () {
-        const ABI_MARKET_V2 = [
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "lender",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "nftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint256",
-                        "name": "nftId",
-                        "type": "uint256"
-                    }
-                ],
-                "name": "CancelLendOrder",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "lender",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint40",
-                        "name": "maxEndTime",
-                        "type": "uint40"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "enum IMarketV2.OrderType",
-                        "name": "orderType",
-                        "type": "uint8"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint96",
-                        "name": "pricePerDay",
-                        "type": "uint96"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint256",
-                        "name": "erc4907NftId",
-                        "type": "uint256"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "doNftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint40",
-                        "name": "minDuration",
-                        "type": "uint40"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint256",
-                        "name": "doNftId",
-                        "type": "uint256"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "paymentToken",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "privateOrderRenter",
-                        "type": "address"
-                    }
-                ],
-                "name": "CreateLendOrderV2",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "renter",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint40",
-                        "name": "startTime",
-                        "type": "uint40"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "lender",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint40",
-                        "name": "endTime",
-                        "type": "uint40"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint256",
-                        "name": "erc4907NftId",
-                        "type": "uint256"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "doNftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint256",
-                        "name": "doNftId",
-                        "type": "uint256"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint256",
-                        "name": "newId",
-                        "type": "uint256"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "paymentToken",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint96",
-                        "name": "pricePerDay",
-                        "type": "uint96"
-                    }
-                ],
-                "name": "FulfillOrderV2",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "oldAdmin",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "newAdmin",
-                        "type": "address"
-                    }
-                ],
-                "name": "NewAdmin",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "oldOwner",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "newOwner",
-                        "type": "address"
-                    }
-                ],
-                "name": "NewOwner",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "oldPendingOwner",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "newPendingOwner",
-                        "type": "address"
-                    }
-                ],
-                "name": "NewPendingOwner",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "account",
-                        "type": "address"
-                    }
-                ],
-                "name": "Paused",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "operator",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "royaltyAdmin",
-                        "type": "address"
-                    }
-                ],
-                "name": "RoyaltyAdminChanged",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "operator",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "beneficiary",
-                        "type": "address"
-                    }
-                ],
-                "name": "RoyaltyBeneficiaryChanged",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "operator",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "indexed": false,
-                        "internalType": "uint32",
-                        "name": "royaltyFee",
-                        "type": "uint32"
-                    }
-                ],
-                "name": "RoyaltyFeeChanged",
-                "type": "event"
-            },
-            {
-                "anonymous": false,
-                "inputs": [
-                    {
-                        "indexed": false,
-                        "internalType": "address",
-                        "name": "account",
-                        "type": "address"
-                    }
-                ],
-                "name": "Unpaused",
-                "type": "event"
-            },
-            {
-                "inputs": [],
-                "name": "acceptOwner",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [],
-                "name": "admin",
-                "outputs": [
-                    {
-                        "internalType": "address",
-                        "name": "",
-                        "type": "address"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "paymentToken",
-                        "type": "address"
-                    }
-                ],
-                "name": "balanceOfRoyalty",
-                "outputs": [
-                    {
-                        "internalType": "uint256",
-                        "name": "",
-                        "type": "uint256"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "nftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint256",
-                        "name": "nftId",
-                        "type": "uint256"
-                    }
-                ],
-                "name": "cancelLendOrder",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address[]",
-                        "name": "paymentTokens",
-                        "type": "address[]"
-                    }
-                ],
-                "name": "claimMarketFee",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "address[]",
-                        "name": "paymentTokens",
-                        "type": "address[]"
-                    }
-                ],
-                "name": "claimRoyalty",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "doNftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint40",
-                        "name": "maxEndTime",
-                        "type": "uint40"
-                    },
-                    {
-                        "internalType": "enum IMarketV2.OrderType",
-                        "name": "orderType",
-                        "type": "uint8"
-                    },
-                    {
-                        "internalType": "uint256",
-                        "name": "doNftId",
-                        "type": "uint256"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "paymentToken",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint96",
-                        "name": "pricePerDay",
-                        "type": "uint96"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "privateOrderRenter",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint40",
-                        "name": "minDuration",
-                        "type": "uint40"
-                    }
-                ],
-                "name": "createLendOrder",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "doNftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint40",
-                        "name": "duration",
-                        "type": "uint40"
-                    },
-                    {
-                        "internalType": "uint256",
-                        "name": "doNftId",
-                        "type": "uint256"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "user",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "paymentToken",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint96",
-                        "name": "pricePerDay",
-                        "type": "uint96"
-                    }
-                ],
-                "name": "fulfillOrderNow",
-                "outputs": [],
-                "stateMutability": "payable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    }
-                ],
-                "name": "getBeneficiary",
-                "outputs": [
-                    {
-                        "internalType": "address",
-                        "name": "",
-                        "type": "address"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "nftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint256",
-                        "name": "nftId",
-                        "type": "uint256"
-                    }
-                ],
-                "name": "getLendOrder",
-                "outputs": [
-                    {
-                        "components": [
-                            {
-                                "internalType": "address",
-                                "name": "lender",
-                                "type": "address"
-                            },
-                            {
-                                "internalType": "uint40",
-                                "name": "maxEndTime",
-                                "type": "uint40"
-                            },
-                            {
-                                "internalType": "uint16",
-                                "name": "nonce",
-                                "type": "uint16"
-                            },
-                            {
-                                "internalType": "address",
-                                "name": "doNftAddress",
-                                "type": "address"
-                            },
-                            {
-                                "internalType": "uint40",
-                                "name": "minDuration",
-                                "type": "uint40"
-                            },
-                            {
-                                "internalType": "enum IMarketV2.OrderType",
-                                "name": "orderType",
-                                "type": "uint8"
-                            },
-                            {
-                                "internalType": "uint256",
-                                "name": "doNftId",
-                                "type": "uint256"
-                            },
-                            {
-                                "internalType": "address",
-                                "name": "paymentToken",
-                                "type": "address"
-                            },
-                            {
-                                "internalType": "address",
-                                "name": "privateOrderRenter",
-                                "type": "address"
-                            },
-                            {
-                                "internalType": "uint96",
-                                "name": "pricePerDay",
-                                "type": "uint96"
-                            }
-                        ],
-                        "internalType": "struct IMarketV2.Lending",
-                        "name": "",
-                        "type": "tuple"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [],
-                "name": "getMarketFee",
-                "outputs": [
-                    {
-                        "internalType": "uint256",
-                        "name": "",
-                        "type": "uint256"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    }
-                ],
-                "name": "getRoyaltyAdmin",
-                "outputs": [
-                    {
-                        "internalType": "address",
-                        "name": "",
-                        "type": "address"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    }
-                ],
-                "name": "getRoyaltyFee",
-                "outputs": [
-                    {
-                        "internalType": "uint32",
-                        "name": "",
-                        "type": "uint32"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "owner_",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "admin_",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "marketBeneficiary_",
-                        "type": "address"
-                    }
-                ],
-                "name": "initialize",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "doNftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint256",
-                        "name": "doNftId",
-                        "type": "uint256"
-                    }
-                ],
-                "name": "isLendOrderValid",
-                "outputs": [
-                    {
-                        "internalType": "bool",
-                        "name": "",
-                        "type": "bool"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [],
-                "name": "isPausing",
-                "outputs": [
-                    {
-                        "internalType": "bool",
-                        "name": "",
-                        "type": "bool"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "",
-                        "type": "address"
-                    }
-                ],
-                "name": "marketBalanceOfFee",
-                "outputs": [
-                    {
-                        "internalType": "uint256",
-                        "name": "",
-                        "type": "uint256"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [],
-                "name": "marketBeneficiary",
-                "outputs": [
-                    {
-                        "internalType": "address payable",
-                        "name": "",
-                        "type": "address"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [],
-                "name": "maxIndate",
-                "outputs": [
-                    {
-                        "internalType": "uint40",
-                        "name": "",
-                        "type": "uint40"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint96",
-                        "name": "pricePerDay",
-                        "type": "uint96"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "doNftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint40",
-                        "name": "maxEndTime",
-                        "type": "uint40"
-                    },
-                    {
-                        "internalType": "uint256",
-                        "name": "erc4907NftId",
-                        "type": "uint256"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "paymentToken",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint40",
-                        "name": "minDuration",
-                        "type": "uint40"
-                    },
-                    {
-                        "internalType": "enum IMarketV2.OrderType",
-                        "name": "orderType",
-                        "type": "uint8"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "privateOrderRenter",
-                        "type": "address"
-                    }
-                ],
-                "name": "mintAndCreateLendOrder",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "bytes[]",
-                        "name": "data",
-                        "type": "bytes[]"
-                    }
-                ],
-                "name": "multicall",
-                "outputs": [
-                    {
-                        "internalType": "bytes[]",
-                        "name": "results",
-                        "type": "bytes[]"
-                    }
-                ],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [],
-                "name": "owner",
-                "outputs": [
-                    {
-                        "internalType": "address",
-                        "name": "",
-                        "type": "address"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [],
-                "name": "pendingOwner",
-                "outputs": [
-                    {
-                        "internalType": "address",
-                        "name": "",
-                        "type": "address"
-                    }
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [],
-                "name": "renounceOwnership",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "newAdmin",
-                        "type": "address"
-                    }
-                ],
-                "name": "setAdmin",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "beneficiary",
-                        "type": "address"
-                    }
-                ],
-                "name": "setBeneficiary",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address payable",
-                        "name": "beneficiary_",
-                        "type": "address"
-                    }
-                ],
-                "name": "setMarketBeneficiary",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "uint256",
-                        "name": "fee_",
-                        "type": "uint256"
-                    }
-                ],
-                "name": "setMarketFee",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "uint40",
-                        "name": "max_",
-                        "type": "uint40"
-                    }
-                ],
-                "name": "setMaxIndate",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "bool",
-                        "name": "pause_",
-                        "type": "bool"
-                    }
-                ],
-                "name": "setPause",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "address",
-                        "name": "royaltyAdmin",
-                        "type": "address"
-                    }
-                ],
-                "name": "setRoyaltyAdmin",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "erc4907NftAddress",
-                        "type": "address"
-                    },
-                    {
-                        "internalType": "uint32",
-                        "name": "royaltyFee",
-                        "type": "uint32"
-                    }
-                ],
-                "name": "setRoyaltyFee",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
-                    {
-                        "internalType": "address",
-                        "name": "_pendingOwner",
-                        "type": "address"
-                    }
-                ],
-                "name": "transferOwnership",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            }
-        ]
-        let iface = new ethers.utils.Interface(ABI_MARKET_V2);
+    // describe("multicall", function () {
 
-        it("create lend order", async function () {
-            let data_valid = iface.encodeFunctionData("mintAndCreateLendOrder", [testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0]);
-            let data_invalid = iface.encodeFunctionData("mintAndCreateLendOrder", [testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, 100, ETH_Address, 86400, 0, address0]);
-            await market.connect(lender).multicall([data_valid, data_invalid])
-            expect(await market.isLendOrderValid(doNFT4907.address, 1)).equal(true);
-            expect(await market.isLendOrderValid(doNFT4907.address, 2)).equal(false);
-        });
+    //     let iface = new ethers.utils.Interface(ABI_MARKET_V2);
 
-    })
+    //     it("create lend order", async function () {
+    //         let data_valid = iface.encodeFunctionData("mintAndCreateLendOrder", [testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, first4907Id, ETH_Address, 86400, 0, address0]);
+    //         let data_invalid = iface.encodeFunctionData("mintAndCreateLendOrder", [testERC4907.address, pricePerDay, doNFT4907.address, maxEndTime, 100, ETH_Address, 86400, 0, address0]);
+    //         await market.connect(lender).multicall([data_valid, data_invalid])
+    //         expect(await market.isLendOrderValid(doNFT4907.address, 1)).equal(true);
+    //         expect(await market.isLendOrderValid(doNFT4907.address, 2)).equal(false);
+    //     });
+
+    // })
 
 
 });
