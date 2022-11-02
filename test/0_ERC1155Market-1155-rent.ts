@@ -103,7 +103,7 @@ describe("ERC1155Market-1155-rent", function () {
 
 
 
-    it("renter rent1155 with ETH success", async function () {
+    it("renter rent1155 when cycle is one day", async function () {
         const royaltyFee = 2500;
         const cycle = 86400;
         const maxLendingDuration = 86400 * 180;
@@ -118,7 +118,7 @@ describe("ERC1155Market-1155-rent", function () {
         await checkRecord(1, 1, amount, market.address, renter.address, expiry);
     });
 
-    it("renter rent1155 with ETH success", async function () {
+    it("renter rent1155 when cycle is one hour", async function () {
         const royaltyFee = 2500;
         const cycle = 3600;
         const maxLendingDuration = 86400 * 180;
@@ -133,7 +133,7 @@ describe("ERC1155Market-1155-rent", function () {
         await checkRecord(1, 1, amount, market.address, renter.address, expiry);
     });
 
-    it("renter rent1155 with ETH success", async function () {
+    it("renter rent1155 when cycle is three hours", async function () {
         const royaltyFee = 2500;
         const cycle = 3600 * 3;
         const maxLendingDuration = 86400 * 180;
@@ -147,7 +147,7 @@ describe("ERC1155Market-1155-rent", function () {
         await checkRenting(1, lendingId, 1);
         await checkRecord(1, 1, amount, market.address, renter.address, expiry);
     });
-    it("renter rent1155 with ETH success", async function () {
+    it("renter rent1155 when cycle is three days", async function () {
         const royaltyFee = 2500;
         const cycle = 86400 * 3;
         const maxLendingDuration = 86400 * 180;
