@@ -118,7 +118,7 @@ contract ERC1155RentalMarket is
     function _befourRent(
         bytes32 lendingId,
         uint64 amount,
-        uint64 n,
+        uint64 cycleAmount,
         address to,
         address paymentToken,
         uint96 pricePerDay
@@ -128,7 +128,7 @@ contract ERC1155RentalMarket is
         IRentalConfig.Config memory _config = rentalConfig.getConfig(
             lending.nftAddress
         );
-        uint64 duration = _config.cycle * n;
+        uint64 duration = _config.cycle * cycleAmount;
         expiry = uint64(block.timestamp) + duration;
         require(expiry <= lending.expiry, "invalid expiry");
         require(
@@ -176,15 +176,15 @@ contract ERC1155RentalMarket is
     function rent5006(
         bytes32 lendingId,
         uint64 amount,
-        uint64 n,
+        uint64 cycleAmount,
         address to,
         address paymentToken,
         uint96 pricePerDay
-    ) external payable whenNotPaused nonReentrant {
+    ) public payable whenNotPaused nonReentrant {
         uint64 expiry = _befourRent(
             lendingId,
             amount,
-            n,
+            cycleAmount,
             to,
             paymentToken,
             pricePerDay
@@ -203,15 +203,15 @@ contract ERC1155RentalMarket is
     function rent1155(
         bytes32 lendingId,
         uint64 amount,
-        uint64 n,
+        uint64 cycleAmount,
         address to,
         address paymentToken,
         uint96 pricePerDay
-    ) external payable whenNotPaused nonReentrant {
+    ) public payable whenNotPaused nonReentrant {
         uint64 expiry = _befourRent(
             lendingId,
             amount,
-            n,
+            cycleAmount,
             to,
             paymentToken,
             pricePerDay
@@ -227,37 +227,71 @@ contract ERC1155RentalMarket is
         rentingMap[_curRentingId] = Renting(lendingId, recordId);
     }
 
-    function clearRenting5006(uint256 rentingId) external {
-        Renting storage renting = rentingMap[rentingId];
-        Lending storage lending = lendingMap[renting.lendingId];
-        IERC5006.UserRecord memory record = IERC5006(lending.nftAddress)
-            .userRecordOf(renting.recordId);
-        require(record.expiry <= block.timestamp, "Not yet expired");
-        IERC5006(lending.nftAddress).deleteUserRecord(renting.recordId);
-        IERC1155(lending.nftAddress).safeTransferFrom(
-            address(this),
-            lending.lender,
-            lending.nftId,
-            record.amount,
-            ""
-        );
-        lending.frozen -= record.amount;
-        delete rentingMap[rentingId];
-        emit ClearRent(rentingId);
+    function clearRenting5006(uint256[] calldata rentingIds) public {
+        for (uint256 i = 0; i < rentingIds.length; i++) {
+            uint256 rentingId = rentingIds[i];
+            Renting storage renting = rentingMap[rentingId];
+            Lending storage lending = lendingMap[renting.lendingId];
+            IERC5006.UserRecord memory record = IERC5006(lending.nftAddress)
+                .userRecordOf(renting.recordId);
+            require(record.expiry <= block.timestamp, "Not yet expired");
+            IERC5006(lending.nftAddress).deleteUserRecord(renting.recordId);
+            IERC1155(lending.nftAddress).safeTransferFrom(
+                address(this),
+                lending.lender,
+                lending.nftId,
+                record.amount,
+                ""
+            );
+            lending.frozen -= record.amount;
+            delete rentingMap[rentingId];
+            emit ClearRent(rentingId);
+        }
     }
 
-    function clearRenting1155(uint256 rentingId) external {
-        Renting storage renting = rentingMap[rentingId];
-        Lending storage lending = lendingMap[renting.lendingId];
-        address wNFT = original_wrapped[lending.nftAddress];
-        IERC5006.UserRecord memory record = IERC5006(wNFT).userRecordOf(
-            renting.recordId
-        );
-        require(record.expiry <= block.timestamp, "Not yet expired");
-        IWrappedInERC5006(wNFT).redeemRecord(renting.recordId, lending.lender);
-        lending.frozen -= record.amount;
-        delete rentingMap[rentingId];
-        emit ClearRent(rentingId);
+    function clearRenting1155(uint256[] calldata rentingIds) public {
+        for (uint256 i = 0; i < rentingIds.length; i++) {
+            uint256 rentingId = rentingIds[i];
+            Renting storage renting = rentingMap[rentingId];
+            Lending storage lending = lendingMap[renting.lendingId];
+            address wNFT = original_wrapped[lending.nftAddress];
+            IERC5006.UserRecord memory record = IERC5006(wNFT).userRecordOf(
+                renting.recordId
+            );
+            require(record.expiry <= block.timestamp, "Not yet expired");
+            IWrappedInERC5006(wNFT).redeemRecord(
+                renting.recordId,
+                lending.lender
+            );
+            lending.frozen -= record.amount;
+            delete rentingMap[rentingId];
+            emit ClearRent(rentingId);
+        }
+    }
+
+    function clearAndRent1155(
+        uint256[] calldata rentingIds,
+        bytes32 lendingId,
+        uint64 amount,
+        uint64 n,
+        address to,
+        address paymentToken,
+        uint96 pricePerDay
+    ) external payable{
+        clearRenting1155(rentingIds);
+        rent1155(lendingId, amount, n, to, paymentToken, pricePerDay);
+    }
+    function clearAndRent5006(
+        uint256[] calldata rentingIds,
+        bytes32 lendingId,
+        uint64 amount,
+        uint64 n,
+        address to,
+        address paymentToken,
+        uint96 pricePerDay
+    ) external payable{
+        clearRenting5006(rentingIds);
+        rent5006(lendingId, amount, n, to, paymentToken, pricePerDay);
     }
 
     function distributePayment(

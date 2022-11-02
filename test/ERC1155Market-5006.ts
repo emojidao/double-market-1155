@@ -266,7 +266,7 @@ describe("ERC1155Market-5006", function () {
         await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("10"));
         await market.connect(carl).rent5006(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
         await hre.network.provider.send("hardhat_mine", ["0x5a1", "0x3c"]);
-        await market.clearRenting5006(1);
+        await market.clearRenting5006([1]);
 
         await checkLending(
             lendingId,
@@ -288,6 +288,40 @@ describe("ERC1155Market-5006", function () {
         await checkRecord(1, 0, 0, Zero, Zero, 0);
 
         expect(await contract5006.balanceOf(lender.address, 1)).equals(100);
+    });
+
+    it("clearAndRent5006 success", async function () {
+        await market.connect(lender).createLending(contract5006.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await erc20.mint(carl.address, ethers.utils.parseEther("100"));
+        await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("100"));
+        await market.connect(carl).rent5006(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
+        await hre.network.provider.send("hardhat_mine", ["0x5a1", "0x3c"]);
+        await market.connect(carl).clearAndRent5006([1],lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
+
+        await checkLending(
+            lendingId,
+            lender.address,
+            contract5006.address,
+            1,
+            100,
+            10,
+            expiry,
+            0,
+            pricePerDay,
+            erc20.address,
+            Zero,
+            0
+        );
+
+        await checkRenting(1, "0x0000000000000000000000000000000000000000000000000000000000000000", 0);
+        await checkRecord(1, 0, 0, Zero, Zero, 0);
+
+        await checkRenting(2, lendingId, 2);
+        await checkRecord(2, 1, 10, market.address, carl.address, expiry);
+
+        expect(await contract5006.usableBalanceOf(carl.address, 1)).equals(10);
+        expect(await contract5006.balanceOf(lender.address, 1)).equals(90);
+
     });
 
     describe("market fee", function () {

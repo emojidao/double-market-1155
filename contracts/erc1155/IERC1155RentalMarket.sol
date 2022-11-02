@@ -64,9 +64,9 @@ interface IERC1155RentalMarket {
 
     function cancelLending(bytes32 lendingId) external;
 
-    function clearRenting5006(uint256 rentingId) external;
+    function clearRenting5006(uint256[] calldata rentingIds) external;
 
-    function clearRenting1155(uint256 rentingId) external;
+    function clearRenting1155(uint256[] calldata rentingIds) external;
 
     function lendingOf(bytes32 lendingId)
         external
@@ -86,7 +86,7 @@ interface IERC1155RentalMarket {
     function rent5006(
         bytes32 lendingId,
         uint64 amount,
-        uint64 n,
+        uint64 cycleAmount,
         address to,
         address paymentToken,
         uint96 pricePerDay
@@ -95,7 +95,7 @@ interface IERC1155RentalMarket {
     function rent1155(
         bytes32 lendingId,
         uint64 amount,
-        uint64 n,
+        uint64 cycleAmount,
         address to,
         address paymentToken,
         uint96 pricePerDay

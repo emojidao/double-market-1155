@@ -48,11 +48,9 @@ describe("ERC1155Market-1155", function () {
     }
 
     async function checkRenting(rentingId_, orderId, recordId) {
-        let order = await market.rentingOf(rentingId);
+        let order = await market.rentingOf(rentingId_);
         expect(order[0]).equals(orderId, "lendingId");
         expect(order[1]).equals(recordId, "recordId");
-        let record = await wrap5006.userRecordOf(rentingId);
-        // console.log(record);
     }
 
     beforeEach(async function () {
@@ -86,7 +84,7 @@ describe("ERC1155Market-1155", function () {
 
         await deployWrapERC1155(contract1155.address);
 
-        await contract1155.mint(lender.address, 1, 200);
+        await contract1155.mint(lender.address, 1, 100);
         await contract1155.connect(lender).setApprovalForAll(market.address, true);
 
         lendingId = ethers.utils.solidityKeccak256(["address", "uint256", "address"], [contract1155.address, 1, lender.address]);
@@ -279,7 +277,7 @@ describe("ERC1155Market-1155", function () {
         await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("10"));
         await market.connect(carl).rent1155(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
         await hre.network.provider.send("hardhat_mine", ["0x5a1", "0x3c"]);
-        await market.clearRenting1155(1);
+        await market.clearRenting1155([1]);
 
         await checkLending(
             lendingId,
@@ -301,7 +299,41 @@ describe("ERC1155Market-1155", function () {
         await checkRecord(1, 0, 0, Zero, Zero, 0);
 
         expect(await wrap5006.balanceOf(lender.address, 1)).equals(0);
-        expect(await contract1155.balanceOf(lender.address, 1)).equals(200);
+        expect(await contract1155.balanceOf(lender.address, 1)).equals(100);
+
+    });
+
+    it("clearAndRent1155 success", async function () {
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await erc20.mint(carl.address, ethers.utils.parseEther("100"));
+        await erc20.connect(carl).approve(market.address, ethers.utils.parseEther("100"));
+        await market.connect(carl).rent1155(lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
+        await hre.network.provider.send("hardhat_mine", ["0x5a1", "0x3c"]);
+        await market.connect(carl).clearAndRent1155([1],lendingId, 10, duration_n, carl.address, erc20.address, pricePerDay);
+
+        await checkLending(
+            lendingId,
+            lender.address,
+            contract1155.address,
+            1,
+            100,
+            10,
+            expiry,
+            0,
+            pricePerDay,
+            erc20.address,
+            Zero,
+            0
+        );
+
+        await checkRenting(1, "0x0000000000000000000000000000000000000000000000000000000000000000", 0);
+        await checkRecord(1, 0, 0, Zero, Zero, 0);
+
+        await checkRenting(2, lendingId, 2);
+        await checkRecord(2, 1, 10, market.address, carl.address, expiry);
+
+        expect(await wrap5006.usableBalanceOf(carl.address, 1)).equals(10);
+        expect(await contract1155.balanceOf(lender.address, 1)).equals(90);
 
     });
 
