@@ -157,7 +157,7 @@ contract ERC1155RentalMarket is
             amount,
             duration,
             lending.nftAddress,
-            2500
+            _config.fee
         );
         _curRentingId++;
         emit Rent(
