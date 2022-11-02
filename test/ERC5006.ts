@@ -17,8 +17,8 @@ describe("ERC5006", function () {
 
     beforeEach(async function () {
         [alice, bob, carl] = await ethers.getSigners();
-        const ERC5006Demo = await ethers.getContractFactory("ERC5006Demo");
-        contract = await ERC5006Demo.deploy("", 3);
+        const TestERC5006 = await ethers.getContractFactory("TestERC5006");
+        contract = await TestERC5006.deploy("", 3);
         const blockNumBefore = await ethers.provider.getBlockNumber();
         const blockBefore = await ethers.provider.getBlock(blockNumBefore);
         const timestamp = blockBefore.timestamp;

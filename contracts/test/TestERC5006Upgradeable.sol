@@ -4,18 +4,14 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/IERC1155MetadataURIUpgradeable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "../erc1155/ERC5006Upgradeable.sol";
 
-contract TestERC1155Upgradeable is
+contract TestERC5006Upgradeable is
     IERC1155MetadataURIUpgradeable,
-    ERC1155Upgradeable
+    ERC5006Upgradeable
 {
     using Strings for uint256;
     string internal _uri;
-
-    function initialize(string memory uri_) public initializer {
-        __ERC1155_init(uri_);
-        _uri = uri_;
-    }
 
     function mint(
         address to,
