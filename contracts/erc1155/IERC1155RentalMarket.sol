@@ -48,9 +48,7 @@ interface IERC1155RentalMarket {
     );
     event ClearRent(uint256 rentingId);
 
-    event DeployWrapERC1155(address oNFT, address wNFT);
-
-    event UpdateRentalCycle(address nftAddress, uint64 min);
+    event DeployWrapERC5006(address oNFT, address wNFT);
 
     function createLending(
         address nftAddress,

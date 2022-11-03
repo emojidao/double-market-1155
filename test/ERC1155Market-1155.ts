@@ -82,7 +82,7 @@ describe("ERC1155Market-1155", function () {
         market = await ERC1155RentalMarket.deploy();
         market.initialize(owner.address, admin.address, beneficiary.address, wrapERC1155WithUserRole.address, config.address);
 
-        await deployWrapERC1155(contract1155.address);
+        await deployWrapERC5006(contract1155.address);
 
         await contract1155.mint(lender.address, 1, 100);
         await contract1155.connect(lender).setApprovalForAll(market.address, true);
@@ -91,11 +91,11 @@ describe("ERC1155Market-1155", function () {
         rentingId = 1;
     });
 
-    async function deployWrapERC1155(addr) {
-        let tx = await market.deployWrapERC1155(addr);
+    async function deployWrapERC5006(addr) {
+        let tx = await market.deployWrapERC5006(addr);
         let receipt = await tx.wait();
         let event = receipt.events[1]
-        assert.equal(event.eventSignature, 'DeployWrapERC1155(address,address)')
+        assert.equal(event.eventSignature, 'DeployWrapERC5006(address,address)');
         wrap5006 = await ethers.getContractAt("WrappedInERC5006", event.args[1]);
 
         expect(await market.wNFTOf(contract1155.address)).equal(wrap5006.address)

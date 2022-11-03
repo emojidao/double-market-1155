@@ -54,7 +54,6 @@ describe("ERC1155Market-5006", function () {
 
     beforeEach(async function () {
         [owner, admin, beneficiary, adminOfNFT, beneficiaryOfNFT, lender, renter, alice, bob, carl] = await ethers.getSigners();
-
         const TestERC5006 = await ethers.getContractFactory("TestERC5006");
         contract5006 = await TestERC5006.deploy("", 3);
         const blockNumBefore = await ethers.provider.getBlockNumber();

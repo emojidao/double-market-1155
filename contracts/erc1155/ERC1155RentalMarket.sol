@@ -101,7 +101,9 @@ contract ERC1155RentalMarket is
         returns (IERC5006.UserRecord memory)
     {
         Renting storage renting = rentingMap[rentingId];
-        require(renting.recordId != 0, "Nonexistent Record");
+        if (renting.recordId != 0) {
+            return IERC5006.UserRecord(0, address(0), 0, address(0), 0);
+        }
         Lending storage lending = lendingMap[renting.lendingId];
 
         bool is5006 = IERC165(lending.nftAddress).supportsInterface(
@@ -124,6 +126,7 @@ contract ERC1155RentalMarket is
         uint96 pricePerDay
     ) internal returns (uint64 expiry) {
         Lending storage lending = lendingMap[lendingId];
+        require(cycleAmount > 0, "invalid cycleAmount");
         require(lending.expiry >= block.timestamp, "has expired");
         IRentalConfig.Config memory _config = rentalConfig.getConfig(
             lending.nftAddress
@@ -231,6 +234,7 @@ contract ERC1155RentalMarket is
         for (uint256 i = 0; i < rentingIds.length; i++) {
             uint256 rentingId = rentingIds[i];
             Renting storage renting = rentingMap[rentingId];
+            if(renting.recordId == 0) continue;
             Lending storage lending = lendingMap[renting.lendingId];
             IERC5006.UserRecord memory record = IERC5006(lending.nftAddress)
                 .userRecordOf(renting.recordId);
@@ -253,6 +257,7 @@ contract ERC1155RentalMarket is
         for (uint256 i = 0; i < rentingIds.length; i++) {
             uint256 rentingId = rentingIds[i];
             Renting storage renting = rentingMap[rentingId];
+            if(renting.recordId == 0) continue;
             Lending storage lending = lendingMap[renting.lendingId];
             address wNFT = original_wrapped[lending.nftAddress];
             IERC5006.UserRecord memory record = IERC5006(wNFT).userRecordOf(
@@ -273,25 +278,26 @@ contract ERC1155RentalMarket is
         uint256[] calldata rentingIds,
         bytes32 lendingId,
         uint64 amount,
-        uint64 n,
+        uint64 cycleAmount,
         address to,
         address paymentToken,
         uint96 pricePerDay
-    ) external payable{
+    ) external payable {
         clearRenting1155(rentingIds);
-        rent1155(lendingId, amount, n, to, paymentToken, pricePerDay);
+        rent1155(lendingId, amount, cycleAmount, to, paymentToken, pricePerDay);
     }
+
     function clearAndRent5006(
         uint256[] calldata rentingIds,
         bytes32 lendingId,
         uint64 amount,
-        uint64 n,
+        uint64 cycleAmount,
         address to,
         address paymentToken,
         uint96 pricePerDay
-    ) external payable{
+    ) external payable {
         clearRenting5006(rentingIds);
-        rent5006(lendingId, amount, n, to, paymentToken, pricePerDay);
+        rent5006(lendingId, amount, cycleAmount, to, paymentToken, pricePerDay);
     }
 
     function distributePayment(
@@ -342,13 +348,12 @@ contract ERC1155RentalMarket is
         }
     }
 
-    function deployWrapERC1155(address nftAddress) external returns (address) {
+    function deployWrapERC5006(address nftAddress) external returns (address) {
         require(original_wrapped[nftAddress] == address(0), "deployed");
         address _wrap = Clones.clone(wrapERC1155Impl);
         IWrappedIn(_wrap).initializeWrap(nftAddress);
         original_wrapped[nftAddress] = _wrap;
-        emit DeployWrapERC1155(nftAddress, _wrap);
-        IERC1155(nftAddress).setApprovalForAll(_wrap, true);
+        emit DeployWrapERC5006(nftAddress, _wrap);
         return _wrap;
     }
 
