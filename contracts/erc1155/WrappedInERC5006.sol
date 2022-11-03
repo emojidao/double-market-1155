@@ -61,10 +61,6 @@ contract WrappedInERC5006 is ERC5006Upgradeable, IWrappedInERC5006 {
         redeem(tokenId, amount, to);
     }
 
-    function uri(uint256 id) public view override returns (string memory) {
-        return IERC1155MetadataURI(originalAddress).uri(id);
-    }
-
     /// @dev See {IERC165-supportsInterface}.
     function supportsInterface(bytes4 interfaceId)
         public
