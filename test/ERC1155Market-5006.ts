@@ -21,10 +21,15 @@ describe("ERC1155Market-5006", function () {
 
     async function checkRecord(rid, tokenId, amount, owner, user, expiry_) {
         expiry_ = BigNumber.from(expiry_ + "")
+        let record = await market.recordOf(rid);
         if (tokenId == 0) {
-            await expect(market.recordOf(rid)).to.be.revertedWith("Nonexistent Record");
+            expect(record[0]).equals(0, "tokenId");
+            expect(record[1]).equals(ethers.constants.AddressZero, "owner");
+            expect(record[2]).equals(0, "amount");
+            expect(record[3]).equals(ethers.constants.AddressZero, "user");
+            expect(record[4]).equals(0, "expiry");
+            
         } else {
-            let record = await market.recordOf(rid);
             expect(record[0]).equals(tokenId, "tokenId");
             expect(record[1]).equals(owner, "owner");
             expect(record[2]).equals(amount, "amount");
@@ -63,8 +68,8 @@ describe("ERC1155Market-5006", function () {
 
         pricePerDay = ethers.utils.parseEther("1");
 
-        const TestERC20 = await ethers.getContractFactory("TestERC20");
-        erc20 = await TestERC20.deploy("T", "T", 18);
+        const TestERC20For1155 = await ethers.getContractFactory("TestERC20For1155");
+        erc20 = await TestERC20For1155.deploy("T", "T", 18);
         erc20.mint(alice.address, ethers.utils.parseEther("10000"));
         erc20.mint(renter.address, ethers.utils.parseEther("10000"));
 
@@ -287,6 +292,10 @@ describe("ERC1155Market-5006", function () {
         await checkRecord(1, 0, 0, Zero, Zero, 0);
 
         expect(await contract5006.balanceOf(lender.address, 1)).equals(100);
+    });
+
+    it("clear rent5006 success when Lending is non-existent", async function () {
+        await market.clearRenting5006([0,1,2,3]);
     });
 
     it("clearAndRent5006 success", async function () {

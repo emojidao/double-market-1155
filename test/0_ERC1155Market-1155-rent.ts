@@ -65,8 +65,8 @@ describe("ERC1155Market-1155-rent", function () {
 
         pricePerDay = ethers.utils.parseEther("1");
 
-        const TestERC20 = await ethers.getContractFactory("TestERC20");
-        erc20 = await TestERC20.deploy("T", "T", 18);
+        const TestERC20For1155 = await ethers.getContractFactory("TestERC20For1155");
+        erc20 = await TestERC20For1155.deploy("T", "T", 18);
         erc20.mint(alice.address, ethers.utils.parseEther("10000"));
         erc20.mint(renter.address, ethers.utils.parseEther("10000"));
 
@@ -82,7 +82,7 @@ describe("ERC1155Market-1155-rent", function () {
         market = await ERC1155RentalMarket.deploy();
         market.initialize(owner.address, admin.address, beneficiary.address, wrapERC1155WithUserRole.address, config.address);
 
-        await deployWrapERC1155(contract1155.address);
+        await deployWrapERC5006(contract1155.address);
 
         await contract1155.mint(lender.address, 1, 100);
         await contract1155.connect(lender).setApprovalForAll(market.address, true);
@@ -91,11 +91,11 @@ describe("ERC1155Market-1155-rent", function () {
         rentingId = 1;
     });
 
-    async function deployWrapERC1155(addr) {
-        let tx = await market.deployWrapERC1155(addr);
+    async function deployWrapERC5006(addr) {
+        let tx = await market.deployWrapERC5006(addr);
         let receipt = await tx.wait();
         let event = receipt.events[1]
-        assert.equal(event.eventSignature, 'DeployWrapERC1155(address,address)')
+        assert.equal(event.eventSignature, 'DeployWrapERC5006(address,address)')
         wrap5006 = await ethers.getContractAt("WrappedInERC5006", event.args[1]);
 
         expect(await market.wNFTOf(contract1155.address)).equal(wrap5006.address)
@@ -162,13 +162,13 @@ describe("ERC1155Market-1155-rent", function () {
         await checkRecord(1, 1, amount, market.address, renter.address, expiry);
     });
 
-    // it("renter rent1155 with ERC20 success", async function () {
-    //     await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
-    //     await erc20.mint(renter.address, ethers.utils.parseEther("10"));
-    //     await erc20.connect(renter).approve(market.address, ethers.utils.parseEther("10"));
-    //     await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, erc20.address, pricePerDay);
-    //     await checkRenting(1, lendingId, 1);
-    //     await checkRecord(1, 1, 10, market.address, renter.address, expiry);
-    // });
+    it("renter rent1155 with ERC20 success", async function () {
+        await market.connect(lender).createLending(contract1155.address, 1, 100, expiry, pricePerDay, erc20.address, Zero);
+        await erc20.mint(renter.address, ethers.utils.parseEther("10"));
+        await erc20.connect(renter).approve(market.address, ethers.utils.parseEther("10"));
+        await market.connect(renter).rent1155(lendingId, 10, duration_n, renter.address, erc20.address, pricePerDay);
+        await checkRenting(1, lendingId, 1);
+        await checkRecord(1, 1, 10, market.address, renter.address, expiry);
+    });
 
 });
