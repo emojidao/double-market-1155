@@ -101,7 +101,7 @@ contract ERC1155RentalMarket is
         returns (IERC5006.UserRecord memory)
     {
         Renting storage renting = rentingMap[rentingId];
-        if (renting.recordId != 0) {
+        if (renting.recordId == 0) {
             return IERC5006.UserRecord(0, address(0), 0, address(0), 0);
         }
         Lending storage lending = lendingMap[renting.lendingId];
@@ -354,6 +354,7 @@ contract ERC1155RentalMarket is
         IWrappedIn(_wrap).initializeWrap(nftAddress);
         original_wrapped[nftAddress] = _wrap;
         emit DeployWrapERC5006(nftAddress, _wrap);
+        IERC1155(nftAddress).setApprovalForAll(_wrap, true);
         return _wrap;
     }
 
